@@ -1,4 +1,4 @@
-# Real-time stock streaming dashboard with Celery and Plotly
+# Real-time stock streaming dashboard with QuestDB and Plotly
 
 We are working with a lot of numbers and data every day. As understanding the raw data is challenging sometimes, the most common thing we do is create charts and graphs from it. 
 
