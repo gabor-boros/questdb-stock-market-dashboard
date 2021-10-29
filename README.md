@@ -1,40 +1,51 @@
 # Real-time stock streaming dashboard with QuestDB and Plotly
 
-We are working with a lot of numbers and data every day. As understanding the raw data is challenging sometimes, the most common thing we do is create charts and graphs from it. 
+If you're working with large amounts of data, efficiently storing raw
+information will be your first obstacle. The next challenge is to make sense of
+the data utilizing analytics. One of the fastest ways to convey the state of
+data is through charts and graphs.
 
-## What we will build
+In this tutorial, we will create a real-time streaming dashboard using QuestDB,
+Celery, Redis, Plotly, and Dash. It will be a fun project with excellent charts
+to quickly understand the state of a system with beautiful data visualizations.
 
-In this tutorial, we are going to create a real-time streaming dashboard using QuestDB, Celery, Redis, Plotly, and Dash. It will be a fun project with awesome visualizations.
+## What are Plotly and Dash?
 
-### What are Plotly and Dash
+Plotly defines itself as "the front end for ML and data science models", which
+describes it really well.
 
-Plotly is "the front end for ML and data science models", as the company defines its product, and this describes it really well.
+Plotly has an "app framework" called Dash which we can use to create web
+applications quickly and efficiently. Dash abstracts away the boilerplate needed
+to set up a web server and several handlers for it.
 
-With Plotly and, its "app framework", Dash, we can create web applications in a fast and efficient way. Dash abstracts away the boilerplate needed to set up a web server and several handlers for it. 
+## Project overview
 
-### Project structure
+The project will be built from two main components:
 
-The project will build up from two parts:
+- a backend that periodically fetches user-defined stock data from
+  [Finnhub](https://finnhub.io/), and
+- a front-end that utilizes Plotly and Dash to visualize the gathered data on
+  interactive charts
 
-- a backend that periodically fetches user-defined stock data from [Finnhub](https://finnhub.io/), and
-- a front-end that utilizes Plotly and Dash to visualize the gathered data on interactive charts
-
-For this tutorial, you will need some experience in Python and basic SQL knowledge. To periodically fetch data, we will use Celery backed by Redis as the message broker and QuestDB as storage.
+For this tutorial, you will need some experience in Python and basic SQL
+knowledge. We will use Celery backed by Redis as the message broker and QuestDB
+as storage to periodically fetch data.
 
 Let's see the prerequisites and jump right in!
 
 ### Prerequisites
 
 - Python 3.8
-- Docker
-- Docker Compose
+- Docker & Docker Compose
 - Finnhub account and sandbox API key
+- Basic SQL skills
 
 ## Environment setup
 
 ### Create a new project
 
-First of all, we are going to create an empty directory. That will be the project root. Create the following project structure:
+First of all, we are going to create an empty directory. That will be the
+project root. Create the following project structure:
 
 ```shell
 streaming-dashboard (project root)
@@ -43,46 +54,60 @@ streaming-dashboard (project root)
 
 ### Installing QuestDB & Redis
 
-To install the services required for our project, we are using Docker and Docker Compose to avoid polluting our host machine.
+To install the services required for our project, we are using Docker and Docker
+Compose to avoid polluting our host machine.
 
-Within the project root, let's create a file, called `docker-compose.yml`. This file describes all the necessary requirements the project will use; later on we will extend this file with other services too.
+Within the project root, let's create a file, called `docker-compose.yml`. This
+file describes all the necessary requirements the project will use; later on we
+will extend this file with other services too.
 
 ```yaml
-version: '3'
+version: "3"
 
 volumes:
   questdb_data: {}
 
 services:
   redis:
-    image: 'redis:latest'
+    image: "redis:latest"
     ports:
-      - '6379:6379'
+      - "6379:6379"
 
   questdb:
-    image: 'questdb/questdb:latest'
+    image: "questdb/questdb:latest"
     volumes:
       - questdb_data:/root/.questdb/db
     ports:
-      - '9000:9000'
-      - '8812:8812'
+      - "9000:9000"
+      - "8812:8812"
 ```
 
-Here we go! When you run `docker-compose up`, QuestDB and Redis will fire up. After starting the services, we can access QuestDB's interactive console on [http://127.0.0.1:9000](http://127.0.0.1:9000/).
+Here we go! When you run `docker-compose up`, QuestDB and Redis will fire up.
+After starting the services, we can access QuestDB's interactive console on
+[http://127.0.0.1:9000](http://127.0.0.1:9000/).
 
 ### Create the database table
 
-Although we could create the database table later, since we already started QuestDB, we are going to take this chance and create the table now.
+We could create the database table later, but we will take this opportunity and
+create the table now since we have already started QuestDB.
 
 Connect to QuestDB's interactive console, and run the following SQL statement:
 
 ```sql
 CREATE TABLE
-    quotes(stock_symbol STRING, current_price DOUBLE, high_price DOUBLE, low_price DOUBLE, open_price DOUBLE, percent_change DOUBLE, ts TIMESTAMP)
+    quotes(stock_symbol STRING,
+           current_price DOUBLE,
+           high_price DOUBLE,
+           low_price DOUBLE,
+           open_price DOUBLE,
+           percent_change DOUBLE,
+           ts TIMESTAMP)
     timestamp(ts);
 ```
 
-After executing the command, we will see a success message in the bottom left corner, confirming that the table creation was successful and the table appears on the right-hand side's table list view.
+After executing the command, we will see a success message in the bottom left
+corner, confirming that the table creation was successful and the table appears
+on the right-hand side's table list view.
 
 ![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-17.15.22.png)
 
@@ -92,12 +117,15 @@ Voilá! The table is ready for use.
 
 ### Define Python dependencies
 
-As mentioned, our project will have two pieces. For now, let's focus on the periodic jobs that will fetch the data from Finnhub.
+As mentioned, our project will have two parts. For now, let's focus on the
+routine jobs that will fetch the data from Finnhub.
 
-As in the case of every standard Python project, we are using `requirements.txt` to define the dependencies the project will use. Place the `requirements.txt` in your project root with the content below:
+As in the case of every standard Python project, we are using `requirements.txt`
+to define the dependencies the project will use. Place the `requirements.txt` in
+your project root with the content below:
 
 ```
-finnhub-python==2.4.5   # The official Finnhub Python client 
+finnhub-python==2.4.5   # The official Finnhub Python client
 pydantic==1.8.2        # We will use Pydantic to create data models
 celery[redis]==5.1.2   # Celery will be the periodic task executor
 psycopg2==2.9.1        # We are using QuestDB's PostgreSQL connector
@@ -112,7 +140,8 @@ We can split the requirements into two logical groups:
 1. those requirements that are needed for fetching the data, and
 2. the requirements needed to visualize it
 
-For the sake of simplicity, we did not create two separate requirements files, though in a production environment we would do.
+For the sake of simplicity, we did not create two separate requirements files,
+though in a production environment we would do.
 
 Create a virtualenv and install the dependencies by executing:
 
@@ -124,7 +153,10 @@ $ pip install -r requirements.txt
 
 ### Setting up the DB connection
 
-Since the periodic tasks would need to store the fetched quotes, we need to connect to QuestDB. Therefore, we create a new file in the `app` package, called `db.py`. This file contains the `SQLAlchemy` engine that will serve as the base for our connections.
+Since the periodic tasks would need to store the fetched quotes, we need to
+connect to QuestDB. Therefore, we create a new file in the `app` package, called
+`db.py`. This file contains the `SQLAlchemy` engine that will serve as the base
+for our connections.
 
 ```python
 from sqlalchemy import create_engine
@@ -138,11 +170,16 @@ engine = create_engine(
 
 ### Define the worker settings
 
-Before we jump right into the implementation, first we must configure Celery.
+Before we jump right into the implementation, we must configure Celery.
 
-To create a configuration used by both the workers and the dashboard, create a `settings.py` file in the `app` package. We will use `pydantic`'s `BaseSettings` to define the configuration. This helps us to read the settings from a `.env` file, environment variable and prefix them if needed.
+To create a configuration used by both the workers and the dashboard, create a
+`settings.py` file in the `app` package. We will use `pydantic`'s `BaseSettings`
+to define the configuration. This helps us to read the settings from a `.env`
+file, environment variable, and prefix them if needed.
 
-Ensuring that we do not overwrite any other environment variables, we will set the prefix to `SMD` that stands for "stock market dashboard", our application. Below you can see the settings file:
+Ensuring that we do not overwrite any other environment variables, we will set
+the prefix to `SMD` that stands for "stock market dashboard", our application.
+Below you can see the settings file:
 
 ```python
 from typing import List
@@ -166,7 +203,7 @@ class Settings(BaseSettings):
     api_key: str = ""
     frequency: int = 5  # default stock data fetch frequency in seconds
     symbols: List[str] = list()
-    
+
     # Dash/Plotly
     debug: bool = False
     graph_interval: int = 10
@@ -184,11 +221,19 @@ class Settings(BaseSettings):
 settings = Settings()
 ```
 
-In the settings, you can notice we already defined the `celery_broker` and `database_url` settings with unusual default values. The hostnames are the name of the containers we defined in `docker-compose.yml`. This is not a typo nor a coincidence. As the linked container's names are available as hostnames within the containers, we can use that to connect to the desired services.
+In the settings, you can notice we already defined the `celery_broker` and
+`database_url` settings with unusual default values. The hostnames are the name
+of the containers we defined in `docker-compose.yml`. This is not a typo nor a
+coincidence. As the linked container's names are available as hostnames within
+the containers, we can connect to the desired services.
 
-Some bits are missing at the moment. We still have to define the correct settings and run the worker in a Docker container. Get started with the settings!
+Some bits are missing at the moment. We still have to define the correct
+settings and run the worker in a Docker container. Get started with the
+settings!
 
-To keep our environment separated, we will use a `.env` file. One of `pydantic` based settings' biggest advantage is that it can read environment variables from `.env` files. 
+To keep our environment separated, we will use a `.env` file. One of `pydantic`
+based settings' most significant advantage is that it can read environment
+variables from `.env` files.
 
 Let's create a `.env` file in the project root, next to `docker-compose.yml`:
 
@@ -198,13 +243,16 @@ SMD_FREQUENCY = 10
 SMD_SYMBOLS = ["AAPL","DOCN","EBAY"]
 ```
 
-As you may assume, you will need to get your API key for the sandbox environment at this step. To retrieve the key, the only thing you have to do is sign up to Finnhub, and your API key will appear on the dashboard after login.
+As you may assume, you will need to get your API key for the sandbox environment
+at this step. To retrieve the key, the only thing you have to do is sign up to
+Finnhub, and your API key will appear on the dashboard after login.
 
 ![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-17.28.44.png)
 
 ### Create the periodic task
 
-Now, that we discussed the settings file, in the `app` package, create a new `worker.py` which will contain the Celery and beat schedule configuration:
+Now, that we discussed the settings file, in the `app` package, create a new
+`worker.py` which will contain the Celery and beat schedule configuration:
 
 ```python
 import finnhub
@@ -265,9 +313,11 @@ from app.settings import settings
 # [...]
 ```
 
-In the first few lines, we import the requirements that are needed to fetch and store the data.
+In the first few lines, we import the requirements that are needed to fetch and
+store the data.
 
-After importing the requirements, we configure the Finnhub client and Celery to use the Redis broker we defined in the application settings.
+After importing the requirements, we configure the Finnhub client and Celery to
+use the Redis broker we defined in the application settings.
 
 ```python
 # [...]
@@ -278,7 +328,8 @@ celery_app = Celery(broker=settings.celery_broker)
 # [...]
 ```
 
-To fetch the data periodically per stock symbol, we need to programmatically create a periodic task for every symbol we defined in the settings.
+To fetch the data periodically per stock symbol, we need to programmatically
+create a periodic task for every symbol we defined in the settings.
 
 ```python
 # [...]
@@ -290,11 +341,12 @@ def setup_periodic_tasks(sender, **kwargs):
     """
     for symbol in settings.symbols:
         sender.add_periodic_task(settings.frequency, fetch.s(symbol))
-        
+
 # [...]
 ```
 
-The snippet above will register a new periodic per stock symbol after Celery is connected to the broker.
+The snippet above will register a new periodic per stock symbol after Celery is
+connected to the broker.
 
 The last step is to define the `fetch` task that does the majority of the work.
 
@@ -326,13 +378,17 @@ def fetch(symbol: str):
         conn.execute(text(query))
 ```
 
-Using the Finnhub `client` we get a quote for the given symbol. After the quote is retrieved successfully, we prepare an SQL query to insert the quote into the database. At the end of the function, as the last step, we open a connection to QuestDB and insert the new quote.
+Using the Finnhub `client`, we get a quote for the given symbol. After the quote
+is retrieved successfully, we prepare an SQL query to insert the quote into the
+database. At the end of the function, as the last step, we open a connection to
+QuestDB and insert the new quote.
 
-Congratulations! The worker is ready for use, let's try it out!
+Congratulations! The worker is ready for use; let's try it out!
 
 Execute the command below and wait some seconds to let Celery kick in:
 
-Soon, you will see that the tasks are scheduled and the database is slowly filling.
+Soon, you will see that the tasks are scheduled, and the database is slowly
+filling.
 
 ### A check-in
 
@@ -342,7 +398,8 @@ Before going on, let's check what we have by now:
 2. a `docker-compose.yml` file to manage related services
 3. `app/settings.py` that handles our application configuration
 4. `app/db.py` configuring the database engine, and
-5. last, but not least `app/worker.py` that handles the hard work, fetches, and stores the data.
+5. last but not least, `app/worker.py` that handles the hard work, fetches, and
+   stores the data.
 
 At this point, we should have the following project structure:
 
@@ -359,9 +416,11 @@ At this point, we should have the following project structure:
 
 ### Getting static assets
 
-This tutorial is not about writing the necessary style sheets or collecting static assets. Hence you only need to copy-paste the following code.
+This tutorial is not about writing the necessary style sheets or collecting
+static assets. Hence you only need to copy-paste the following code.
 
-As the first step, create an `assets` directory next to the `app` package with the structure below:
+As the first step, create an `assets` directory next to the `app` package with
+the structure below:
 
 ```
 ├── app
@@ -374,155 +433,21 @@ As the first step, create an `assets` directory next to the `app` package with t
 ├── docker-compose.yml
 ```
 
-The `style.css` will define the styling for our application. As mentioned above, Dash will save us from boilerplate code, so the `assets` directory will be used by default in conjunction with the stylesheet in it.
+The `style.css` will define the styling for our application. As mentioned above,
+Dash will save us from boilerplate code, so the `assets` directory will be used
+by default in conjunction with the stylesheet in it.
 
-Copy-paste the following code to `style.css`:
+Download the `style.css` file to the `assets` directory, this can be done using
+`wget`:
 
-```css
-html {
-    font-size: 62.5%;
-}
-
-body {
-    font-size: 1.5em;
-    line-height: 1.6;
-    font-weight: 400;
-    font-family: "Open Sans", "HelveticaNeue", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    color: rgb(50, 50, 50);
-    background-color: #21222c;
-}
-
-h1, h2, h3, h4, h5, h6 {
-    margin-top: 0;
-    margin-bottom: 0;
-    font-weight: 300;
-}
-
-h1 {
-    font-size: 4.5rem;
-    line-height: 1.2;
-    letter-spacing: -.1rem;
-    margin-bottom: 2rem;
-}
-
-h2 {
-    font-size: 3.6rem;
-    line-height: 1.25;
-    letter-spacing: -.1rem;
-    margin-bottom: 1.8rem;
-    margin-top: 1.8rem;
-}
-
-h3 {
-    font-size: 3.0rem;
-    line-height: 1.3;
-    letter-spacing: -.1rem;
-    margin-bottom: 1.5rem;
-    margin-top: 1.5rem;
-}
-
-h4 {
-    font-size: 2.6rem;
-    line-height: 1.35;
-    letter-spacing: -.08rem;
-    margin-bottom: 1.2rem;
-    margin-top: 1.2rem;
-}
-
-h5 {
-    font-size: 2.2rem;
-    line-height: 1.5;
-    letter-spacing: -.05rem;
-    margin-bottom: 0.6rem;
-    margin-top: 0.6rem;
-}
-
-h6 {
-    font-size: 2.0rem;
-    line-height: 1.6;
-    letter-spacing: 0;
-    margin-bottom: 0.75rem;
-    margin-top: 0.75rem;
-}
-
-p {
-    margin-top: 0;
-}
-
-#stock-symbol {
-    color: #aaaaaa !important;
-}
-
-.column {
-    width: 100%;
-    float: left;
-    box-sizing: border-box;
-    margin-left: 4%;
-}
-
-.column:first-child {
-    margin-left: 0;
-}
-
-.one-half.column {
-    width: 48%;
-}
-
-.Select--single > .Select-control {
-    background-color: #282a36;
-    border: none;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
-}
-
-.Select--single > .Select-control .Select-value .Select-value-label {
-    color: #aaaaaa !important;
-}
-
-.Select-menu-outer {
-    color: #282a36;
-}
-
-.app__container {
-    margin: 3% 5%;
-}
-
-.app__header {
-    display: flex;
-    justify-content: space-between;
-    color: #fff;
-    margin-bottom: 4rem;
-}
-
-.app__header__title {
-    letter-spacing: 0.23rem;
-}
-
-.app__selector {
-    width: 48%;
-}
-
-.app__selector p {
-    color: #fafafa;
-}
-
-.app__content {
-    display: flex;
-    margin-top: 20px;
-}
-
-.graph__title {
-    background-color: #282a36;
-    color: #fff !important;
-    letter-spacing: 0.3rem !important;
-    padding: 25px 25px 0px 25px;
-    margin-bottom: 0px !important;
-    font-size: 1em;
-}
+```python
+wget https://github.com/gabor-boros/questdb-stock-market-dashboard/blob/gabor/initial-commit/assets/style.css ./assets
 ```
 
 ### Setting up the application
 
-This is the most interesting part of the tutorial. We are going to visualize the data we collect.
+This is the most interesting part of the tutorial. We are going to visualize the
+data we collect.
 
 Create a `main.py` file in the `app` package, and let's begin with the imports:
 
@@ -541,7 +466,8 @@ from app.settings import settings
 # [...]
 ```
 
-After having the imports in place, we are defining some helper functions and constants.
+After having the imports in place, we are defining some helper functions and
+constants.
 
 ```python
 # [...]
@@ -577,9 +503,15 @@ def get_stock_data(start: datetime, end: datetime, stock_symbol: str):
 # [...]
 ```
 
-In the first few lines, we define constants for setting a graph update frequency (`GRAPH_INTERVAL`) and colors that will be used for coloring the graph (`COLORS`).
+In the first few lines, we define constants for setting a graph update frequency
+(`GRAPH_INTERVAL`) and colors that will be used for coloring the graph
+(`COLORS`).
 
-After that, we define two helper functions, `now` and `get_stock_data`. While `now` is responsible only for getting the current time in UTC (as Finnhub returns the date in UTC too), the `get_stock_data` does more. It is the core of our front-end application, it fetches the stock data from QuestDB that workers inserted.
+After that, we define two helper functions, `now` and `get_stock_data`. While
+`now` is responsible only for getting the current time in UTC (as Finnhub
+returns the date in UTC too), the `get_stock_data` does more. It is the core of
+our front-end application, it fetches the stock data from QuestDB that workers
+inserted.
 
 Now, define the initial data frame and the application:
 
@@ -598,11 +530,15 @@ app = dash.Dash(
 # [...]
 ```
 
-As you can see above, the initial data frame (`df`) will contain the latest 5 hours of data we have. This is needed to pre-populate the application with some data we have.
+As you can see above, the initial data frame (`df`) will contain the latest 5
+hours of data we have. This is needed to pre-populate the application with some
+data we have.
 
-The application definition `app` describes the application's title, asset folder, and some HTML meta tags used during rendering.
+The application definition `app` describes the application's title, asset
+folder, and some HTML meta tags used during rendering.
 
-Create the application layout that will be rendered as HTML. As you may assume, we won't write HTML code, though we will use Dash's helpers for that:
+Create the application layout that will be rendered as HTML. As you may assume,
+we won't write HTML code, though we will use Dash's helpers for that:
 
 ```python
 # [...]
@@ -673,11 +609,13 @@ app.layout = html.Div(
 # [...]
 ```
 
-This snippet is a bit longer, though it has only one interesting part, `dcc.Interval`. The interval is used to set up periodic graph refresh.
+This snippet is a bit longer, though it has only one interesting part,
+`dcc.Interval`. The interval is used to set up periodic graph refresh.
 
-We are close to the end of this tutorial, hold on!
-
-Now, we are going to define two callbacks that will listen to input changes and the interval discussed above. The first callback is for generating the graph data and rendering the lines per stock symbol.
+We are nearly finished with our application, but the last steps are to define
+two callbacks that will listen to input changes and the interval discussed
+above. The first callback is for generating the graph data and rendering the
+lines per stock symbol.
 
 ```python
 # [...]
@@ -713,11 +651,13 @@ def generate_stock_graph(selected_symbol, _):
 
     figure = graph_objects.Figure(data=data, layout=layout)
     return figure
-    
+
 # [...]
 ```
 
-The other callback is very similar to the previous one, it will be responsible for updating the percentage change representation of the stocks or a given stock.
+The other callback is very similar to the previous one; it will be responsible
+for updating the percentage change representation of the stocks or a given
+stock.
 
 ```python
 # [...]
@@ -756,11 +696,12 @@ def generate_stock_graph_percentage(selected_symbol, _):
 
     figure = graph_objects.Figure(data=data, layout=layout)
     return figure
-    
+
 # [...]
 ```
 
-The last pice is to call `run_server` on the `app` object when the script is called from the CLI. 
+The last step is to call `run_server` on the `app` object when the script is
+called from the CLI.
 
 ```python
 # [...]
@@ -769,7 +710,9 @@ if __name__ == "__main__":
     app.run_server(host="0.0.0.0", debug=settings.debug)
 ```
 
-We are done! As every piece took its place, we can try our application with real data. Make sure that the Docker containers are started and execute `PYTHONPATH=. python app/main.py` from the project root:
+We are now ready! As every piece takes its place, we can try our application
+with actual data. Make sure that the Docker containers are started and execute
+`PYTHONPATH=. python app/main.py` from the project root:
 
 ```shell
 $ PYTHONPATH=. python app/main.py
@@ -791,14 +734,20 @@ Navigate to http://127.0.0.1:8050/, to see the application in action.
 
 ![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-18.37.27.png)
 
-To select only one stock, in the dropdown field choose the desired stock symbol and let the application refresh.
+To select only one stock, in the dropdown field choose the desired stock symbol
+and let the application refresh.
 
 ![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-18.37.35.png)
 
 ## Summary
 
-In this tutorial, we've learned how to write periodic tasks in Python, store data in QuestDB, and create beautiful dashboards using Plotly and Dash. Although we won't start trading just right now, this tutorial demonstrated well how to combine these separately powerful tools and software to create something bigger and more useful.
+In this tutorial, we've learned how to schedule tasks in Python, store data in
+QuestDB, and create beautiful dashboards using Plotly and Dash. Although we
+won't start trading just right now; this tutorial demonstrated well how to
+combine these separately powerful tools and software to create something bigger
+and more useful.
 
 Thank you for your attention!
 
-*The source code is available at* https://github.com/gabor-boros/questdb-stock-market-dashboard.
+_The source code is available at_
+https://github.com/gabor-boros/questdb-stock-market-dashboard.
