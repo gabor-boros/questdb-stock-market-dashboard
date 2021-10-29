@@ -102,7 +102,8 @@ CREATE TABLE
            open_price DOUBLE,
            percent_change DOUBLE,
            ts TIMESTAMP)
-    timestamp(ts);
+    timestamp(ts)
+PARTITION BY DAY;
 ```
 
 After executing the command, we will see a success message in the bottom left
@@ -438,10 +439,10 @@ Dash will save us from boilerplate code, so the `assets` directory will be used
 by default in conjunction with the stylesheet in it.
 
 Download the `style.css` file to the `assets` directory, this can be done using
-`wget`:
+`curl`:
 
 ```python
-wget https://github.com/gabor-boros/questdb-stock-market-dashboard/blob/gabor/initial-commit/assets/style.css ./assets
+curl -s -o ./assets/style.css https://github.com/gabor-boros/questdb-stock-market-dashboard/blob/master/assets/style.css
 ```
 
 ### Setting up the application
