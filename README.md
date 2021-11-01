@@ -127,13 +127,13 @@ your project root with the content below:
 
 ```
 finnhub-python==2.4.5   # The official Finnhub Python client
-pydantic==1.8.2        # We will use Pydantic to create data models
-celery[redis]==5.1.2   # Celery will be the periodic task executor
-psycopg2==2.9.1        # We are using QuestDB's PostgreSQL connector
-sqlalchemy==1.4.2      # SQLAlchemy will help us executing SQL queries
-dash==2.0.0            # Dash is used for building data apps
-pandas==1.3.4          # Pandas will handle the data frames from QuestDB
-plotly==5.3.1          # Plotly will help us with beautiful charts
+pydantic[dotenv]==1.8.2 # We will use Pydantic to create data models
+celery[redis]==5.1.2    # Celery will be the periodic task executor
+psycopg2==2.9.1         # We are using QuestDB's PostgreSQL connector
+sqlalchemy==1.4.2       # SQLAlchemy will help us executing SQL queries
+dash==2.0.0             # Dash is used for building data apps
+pandas==1.3.4           # Pandas will handle the data frames from QuestDB
+plotly==5.3.1           # Plotly will help us with beautiful charts
 ```
 
 We can split the requirements into two logical groups:
@@ -194,10 +194,10 @@ class Settings(BaseSettings):
     """
 
     # Celery settings
-    celery_broker: str = "redis://redis:6379/0"
+    celery_broker: str = "redis://127.0.0.1:6379/0"
 
     # Database settings
-    database_url: str = "postgresql://admin:quest@questdb:8812/qdb"
+    database_url: str = "postgresql://admin:quest@127.0.0.1:8812/qdb"
     database_pool_size: int = 3
 
     # Finnhub settings
@@ -206,7 +206,7 @@ class Settings(BaseSettings):
     symbols: List[str] = list()
 
     # Dash/Plotly
-    debug: bool = False
+    debug: bool = True
     graph_interval: int = 10
 
     class Config:
@@ -214,6 +214,7 @@ class Settings(BaseSettings):
         Meta configuration of the settings parser.
         """
 
+        env_file = ".env"
         # Prefix the environment variable not to mix up with other variables
         # used by the OS or other software.
         env_prefix = "SMD_"  # SMD stands for Stock Market Dashboard
@@ -386,7 +387,12 @@ QuestDB and insert the new quote.
 
 Congratulations! The worker is ready for use; let's try it out!
 
-Execute the command below and wait some seconds to let Celery kick in:
+Execute the command below in a new terminal window within the virtualenv, and wait
+some seconds to let Celery kick in:
+
+```shell
+python -m celery --app app.worker.celery_app worker --beat -l info -c 1
+```
 
 Soon, you will see that the tasks are scheduled, and the database is slowly
 filling.
@@ -410,6 +416,7 @@ At this point, we should have the following project structure:
 │   ├── db.py
 │   ├── settings.py
 │   └── worker.py
+├── .env
 ├── docker-compose.yml
 ```
 
@@ -430,7 +437,7 @@ the structure below:
 │   ├── settings.py
 │   └── worker.py
 ├── assets
-│   └── style.css
+├── .env
 ├── docker-compose.yml
 ```
 
@@ -442,7 +449,7 @@ Download the `style.css` file to the `assets` directory, this can be done using
 `curl`:
 
 ```python
-curl -s -o ./assets/style.css https://github.com/gabor-boros/questdb-stock-market-dashboard/blob/master/assets/style.css
+curl -s -Lo ./assets/style.css https://raw.githubusercontent.com/gabor-boros/questdb-stock-market-dashboard/main/assets/style.css
 ```
 
 ### Setting up the application
