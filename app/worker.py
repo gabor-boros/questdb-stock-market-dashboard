@@ -35,7 +35,7 @@ def fetch(symbol: str):
         {quote["l"]},
         {quote["o"]},
         {quote["pc"]},
-        cast({quote["t"]} * 1000000L AS TIMESTAMP)
+        systimestamp()
     ) timestamp(ts);
     """
 
