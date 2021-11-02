@@ -11,6 +11,8 @@ from app.settings import settings
 
 GRAPH_INTERVAL = settings.graph_interval * 1000
 
+TIME_DELTA = 5  # last T hours of data are looked into as per insert time
+
 COLORS = [
     "#1e88e5",
     "#7cb342",
@@ -29,16 +31,17 @@ def get_stock_data(start: datetime, end: datetime, stock_symbol: str):
     def format_date(dt: datetime) -> str:
         return dt.isoformat(timespec="microseconds") + "Z"
 
-    query = f"SELECT * FROM quotes WHERE ts >= '{format_date(start)}' AND ts <= '{format_date(end)}'"
+    query = f"quotes WHERE ts BETWEEN '{format_date(start)}' AND '{format_date(end)}'"
 
     if stock_symbol:
         query += f" AND stock_symbol = '{stock_symbol}' "
 
     with engine.connect() as conn:
+        print(f"SDQ: {query}")
         return pandas.read_sql_query(query, conn)
 
 
-df = get_stock_data(now() - timedelta(hours=5), now(), "")
+df = get_stock_data(now() - timedelta(hours=TIME_DELTA), now(), "")
 
 app = dash.Dash(
     __name__,
@@ -46,7 +49,6 @@ app = dash.Dash(
     assets_folder="../assets",
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
-
 app.layout = html.Div(
     [
         html.Div(
@@ -87,7 +89,7 @@ app.layout = html.Div(
                         ),
                         dcc.Graph(id="stock-graph"),
                     ],
-                    className="one-half column wind__speed__container",
+                    className="one-half column",
                 ),
                 html.Div(
                     [
@@ -96,7 +98,7 @@ app.layout = html.Div(
                         ),
                         dcc.Graph(id="stock-graph-percent-change"),
                     ],
-                    className="one-half column wind__speed__container",
+                    className="one-half column",
                 ),
             ],
             className="app__content",
@@ -104,7 +106,7 @@ app.layout = html.Div(
         dcc.Interval(
             id="stock-graph-update",
             interval=int(GRAPH_INTERVAL),
-            n_intervals=0,
+            n_intervals=5,
         ),
     ],
     className="app__container",
@@ -117,7 +119,7 @@ app.layout = html.Div(
 )
 def generate_stock_graph(selected_symbol, _):
     data = []
-    filtered_df = get_stock_data(now() - timedelta(hours=5), now(), selected_symbol)
+    filtered_df = get_stock_data(now() - timedelta(hours=TIME_DELTA), now(), selected_symbol)
     groups = filtered_df.groupby(by="stock_symbol")
 
     for group, data_frame in groups:
@@ -153,7 +155,7 @@ def generate_stock_graph(selected_symbol, _):
 )
 def generate_stock_graph_percentage(selected_symbol, _):
     data = []
-    filtered_df = get_stock_data(now() - timedelta(hours=5), now(), selected_symbol)
+    filtered_df = get_stock_data(now() - timedelta(hours=TIME_DELTA), now(), selected_symbol)
     groups = filtered_df.groupby(by="stock_symbol")
 
     for group, data_frame in groups:

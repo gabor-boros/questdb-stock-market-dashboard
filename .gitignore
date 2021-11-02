@@ -77,3 +77,4 @@ celerybeat-schedule
 
 # Misc
 .DS_Store
+celerybeat-schedule.db
