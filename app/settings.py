@@ -1,5 +1,4 @@
 from typing import List
-
 from pydantic import BaseSettings
 
 
@@ -21,7 +20,7 @@ class Settings(BaseSettings):
     symbols: List[str] = list()
 
     # Dash/Plotly
-    debug: bool = False
+    debug: bool = True
     graph_interval: int = 10
 
     class Config:
@@ -32,6 +31,7 @@ class Settings(BaseSettings):
         # Prefix the environment variable not to mix up with other variables
         # used by the OS or other software.
         env_prefix = "SMD_"  # SMD stands for Stock Market Dashboard
+        env_file = ".env"
 
 
 settings = Settings()

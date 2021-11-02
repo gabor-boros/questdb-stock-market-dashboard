@@ -95,14 +95,15 @@ Connect to QuestDB's interactive console, and run the following SQL statement:
 
 ```sql
 CREATE TABLE
-    quotes(stock_symbol STRING,
-           current_price DOUBLE,
-           high_price DOUBLE,
-           low_price DOUBLE,
-           open_price DOUBLE,
-           percent_change DOUBLE,
-           ts TIMESTAMP)
-    timestamp(ts)
+      quotes(stock_symbol SYMBOL CAPACITY 5 CACHE INDEX, -- we are in fact just checking 3
+             current_price DOUBLE,
+             high_price DOUBLE,
+             low_price DOUBLE,
+             open_price DOUBLE,
+             percent_change DOUBLE,
+             tradets TIMESTAMP, -- timestamp of the trade
+             ts TIMESTAMP)      -- time of insert in our table
+      timestamp(ts)
 PARTITION BY DAY;
 ```
 
@@ -110,7 +111,7 @@ After executing the command, we will see a success message in the bottom left
 corner, confirming that the table creation was successful and the table appears
 on the right-hand side's table list view.
 
-![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-17.15.22.png)
+![img](./images/Screenshot-2021-10-26-at-17.15.22.png)
 
 Voilá! The table is ready for use.
 
@@ -249,7 +250,7 @@ As you may assume, you will need to get your API key for the sandbox environment
 at this step. To retrieve the key, the only thing you have to do is sign up to
 Finnhub, and your API key will appear on the dashboard after login.
 
-![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-17.28.44.png)
+![img](./images/Screenshot-2021-10-26-at-17.28.44.png)
 
 ### Create the periodic task
 
@@ -260,13 +261,11 @@ Now, that we discussed the settings file, in the `app` package, create a new
 import finnhub
 from celery import Celery
 from sqlalchemy import text
-
 from app.db import engine
 from app.settings import settings
 
 client = finnhub.Client(api_key=settings.api_key)
 celery_app = Celery(broker=settings.celery_broker)
-
 
 @celery_app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
@@ -284,9 +283,18 @@ def fetch(symbol: str):
     """
 
     quote: dict = client.quote(symbol)
-
+    # https://finnhub.io/docs/api/quote
+    #  quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
+    # c: Current price
+    # d: Change
+    # dp: Percent change
+    # h: High price of the day
+    # l: Low price of the day
+    # o: Open price of the day
+    # pc: Previous close price
+    # t: when it was traded
     query = f"""
-    INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, ts)
+    INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
         '{symbol}',
         {quote["c"]},
@@ -294,15 +302,16 @@ def fetch(symbol: str):
         {quote["l"]},
         {quote["o"]},
         {quote["pc"]},
+        {quote["t"]} * 1000000,
         systimestamp()
-    ) timestamp(ts);
+    );
     """
 
     with engine.connect() as conn:
         conn.execute(text(query))
 ```
 
-Review the code above together and discuss what `worker.py` does.
+Going through the the code above:
 
 ```python
 import finnhub
@@ -362,9 +371,19 @@ def fetch(symbol: str):
     """
 
     quote: dict = client.quote(symbol)
-
+    # https://finnhub.io/docs/api/quote
+    #  quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
+    # c: Current price
+    # d: Change
+    # dp: Percent change
+    # h: High price of the day
+    # l: Low price of the day
+    # o: Open price of the day
+    # pc: Previous close price
+    # t: when it was traded
+    
     query = f"""
-    INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, ts)
+    INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
         '{symbol}',
         {quote["c"]},
@@ -372,8 +391,9 @@ def fetch(symbol: str):
         {quote["l"]},
         {quote["o"]},
         {quote["pc"]},
-        cast({quote["t"]} * 1000000L AS TIMESTAMP)
-    ) timestamp(ts);
+        {quote["t"]} * 1000000,
+        systimestamp()
+    );
     """
 
     with engine.connect() as conn:
@@ -381,7 +401,7 @@ def fetch(symbol: str):
 ```
 
 Using the Finnhub `client`, we get a quote for the given symbol. After the quote
-is retrieved successfully, we prepare an SQL query to insert the quote into the
+is retrieved successfully, we prepare a SQL query to insert the quote into the
 database. At the end of the function, as the last step, we open a connection to
 QuestDB and insert the new quote.
 
@@ -482,6 +502,8 @@ constants.
 
 GRAPH_INTERVAL = settings.graph_interval * 1000
 
+TIME_DELTA = 5  # last T hours of data are looked into as per insert time
+
 COLORS = [
     "#1e88e5",
     "#7cb342",
@@ -500,7 +522,7 @@ def get_stock_data(start: datetime, end: datetime, stock_symbol: str):
     def format_date(dt: datetime) -> str:
         return dt.isoformat(timespec="microseconds") + "Z"
 
-    query = f"SELECT * FROM quotes WHERE ts >= '{format_date(start)}' AND ts <= '{format_date(end)}'"
+    query = f"quotes WHERE ts BETWEEN '{format_date(start)}' AND '{format_date(end)}'"
 
     if stock_symbol:
         query += f" AND stock_symbol = '{stock_symbol}' "
@@ -526,7 +548,7 @@ Now, define the initial data frame and the application:
 ```python
 # [...]
 
-df = get_stock_data(now() - timedelta(hours=5), now(), "")
+df = get_stock_data(now() - timedelta(hours=TIME_DELTA), now(), "")
 
 app = dash.Dash(
     __name__,
@@ -634,7 +656,7 @@ lines per stock symbol.
 )
 def generate_stock_graph(selected_symbol, _):
     data = []
-    filtered_df = get_stock_data(now() - timedelta(hours=5), now(), selected_symbol)
+    filtered_df = get_stock_data(now() - timedelta(hours=TIME_DELTA), now(), selected_symbol)
     groups = filtered_df.groupby(by="stock_symbol")
 
     for group, data_frame in groups:
@@ -679,7 +701,7 @@ stock.
 )
 def generate_stock_graph_percentage(selected_symbol, _):
     data = []
-    filtered_df = get_stock_data(now() - timedelta(hours=5), now(), selected_symbol)
+    filtered_df = get_stock_data(now() - timedelta(hours=TIME_DELTA), now(), selected_symbol)
     groups = filtered_df.groupby(by="stock_symbol")
 
     for group, data_frame in groups:
@@ -740,12 +762,12 @@ Dash is running on http://0.0.0.0:8050/
 
 Navigate to http://127.0.0.1:8050/, to see the application in action.
 
-![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-18.37.27.png)
+![img](./images/Screenshot-2021-10-26-at-18.37.27.png)
 
 To select only one stock, in the dropdown field choose the desired stock symbol
 and let the application refresh.
 
-![img](https://www.gaboros.hu/content/images/2021/10/Screenshot-2021-10-26-at-18.37.35.png)
+![img](./images/Screenshot-2021-10-26-at-18.37.35.png)
 
 ## Summary
 
