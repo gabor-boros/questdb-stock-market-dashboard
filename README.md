@@ -1,4 +1,6 @@
-# Real-time stock streaming dashboard with QuestDB and Plotly
+# Real-time stock price dashboard using QuestDB, Python and Plotly
+
+## Why Plotly and Dash are useful for real-time applications
 
 If you're working with large amounts of data, efficiently storing raw
 information will be your first obstacle. The next challenge is to make sense of
@@ -9,14 +11,10 @@ In this tutorial, we will create a real-time streaming dashboard using QuestDB,
 Celery, Redis, Plotly, and Dash. It will be a fun project with excellent charts
 to quickly understand the state of a system with beautiful data visualizations.
 
-## What are Plotly and Dash?
-
 Plotly defines itself as "the front end for ML and data science models", which
-describes it really well.
-
-Plotly has an "app framework" called Dash which we can use to create web
-applications quickly and efficiently. Dash abstracts away the boilerplate needed
-to set up a web server and several handlers for it.
+describes it really well. Plotly has an "app framework" called Dash which we
+can use to create web applications quickly and efficiently. Dash abstracts away
+the boilerplate needed to set up a web server and several handlers for it.
 
 ## Project overview
 
@@ -40,26 +38,28 @@ Let's see the prerequisites and jump right in!
 - Finnhub account and sandbox API key
 - Basic SQL skills
 
+The source code for this tutorial is available at the corresponding [GitHub repository](https://github.com/gabor-boros/questdb-stock-market-dashboard).
+
 ## Environment setup
 
 ### Create a new project
 
-First of all, we are going to create an empty directory. That will be the
-project root. Create the following project structure:
+First of all, we are going to create empty directories for our project
+root and the Python module:
 
 ```shell
-streaming-dashboard (project root)
-└── app (this directory will contain our application)
+mkdir -p streaming-dashboard/app
+# streaming-dashboard
+# └── app
 ```
 
 ### Installing QuestDB & Redis
 
 To install the services required for our project, we are using Docker and Docker
-Compose to avoid polluting our host machine.
-
-Within the project root, let's create a file, called `docker-compose.yml`. This
-file describes all the necessary requirements the project will use; later on we
-will extend this file with other services too.
+Compose to avoid polluting our host machine. Within the project root, let's
+create a file, called docker-compose.yml. This file describes all the necessary
+requirements the project will use; later on we will extend this file with other
+services too.
 
 ```yaml
 version: "3"
@@ -89,9 +89,8 @@ After starting the services, we can access QuestDB's interactive console on
 ### Create the database table
 
 We could create the database table later, but we will take this opportunity and
-create the table now since we have already started QuestDB.
-
-Connect to QuestDB's interactive console, and run the following SQL statement:
+create the table now since we have already started QuestDB. Connect to QuestDB's
+interactive console, and run the following SQL statement:
 
 ```sql
 CREATE TABLE
@@ -115,16 +114,15 @@ on the right-hand side's table list view.
 
 Voilá! The table is ready for use.
 
-## Create workers
+## Creating workers using Celery
 
 ### Define Python dependencies
 
 As mentioned, our project will have two parts. For now, let's focus on the
-routine jobs that will fetch the data from Finnhub.
-
-As in the case of every standard Python project, we are using `requirements.txt`
-to define the dependencies the project will use. Place the `requirements.txt` in
-your project root with the content below:
+routine jobs that will fetch the data from Finnhub. As is the case of every
+standard Python project, we are using requirements.txt to define the dependencies
+the project will use. Place the requirements.txt in your project root with the
+content below:
 
 ```
 finnhub-python==2.4.5   # The official Finnhub Python client
@@ -139,13 +137,12 @@ plotly==5.3.1           # Plotly will help us with beautiful charts
 
 We can split the requirements into two logical groups:
 
-1. those requirements that are needed for fetching the data, and
-2. the requirements needed to visualize it
+1. requirements for fetching the data, and
+2. requirements needed to visualize this data
 
 For the sake of simplicity, we did not create two separate requirements files,
-though in a production environment we would do.
-
-Create a virtualenv and install the dependencies by executing:
+though in a production environment we would do. Create a virtualenv and install
+the dependencies:
 
 ```shell
 $ virtualenv -p python3.8 virtualenv
@@ -172,16 +169,15 @@ engine = create_engine(
 
 ### Define the worker settings
 
-Before we jump right into the implementation, we must configure Celery.
+Before we jump right into the implementation, we must configure Celery. To create
+a configuration used by both the workers and the dashboard, create a `settings.py`
+file in the `app` package. We will use `pydantic`'s BaseSettings to define the
+configuration. This helps us to read the settings from a `.env` file, environment
+variable, and prefix them if needed.
 
-To create a configuration used by both the workers and the dashboard, create a
-`settings.py` file in the `app` package. We will use `pydantic`'s `BaseSettings`
-to define the configuration. This helps us to read the settings from a `.env`
-file, environment variable, and prefix them if needed.
-
-Ensuring that we do not overwrite any other environment variables, we will set
-the prefix to `SMD` that stands for "stock market dashboard", our application.
-Below you can see the settings file:
+Ensuring that we do not overwrite any other environment variables, we will set the
+prefix to `SMD` that stands for "stock market dashboard", our application. Below you
+can see the settings file:
 
 ```python
 from typing import List
@@ -225,10 +221,7 @@ settings = Settings()
 ```
 
 In the settings, you can notice we already defined the `celery_broker` and
-`database_url` settings with unusual default values. The hostnames are the name
-of the containers we defined in `docker-compose.yml`. This is not a typo nor a
-coincidence. As the linked container's names are available as hostnames within
-the containers, we can connect to the desired services.
+`database_url` settings with unusual default values.
 
 Some bits are missing at the moment. We still have to define the correct
 settings and run the worker in a Docker container. Get started with the
@@ -253,9 +246,6 @@ Finnhub, and your API key will appear on the dashboard after login.
 ![img](./images/Screenshot-2021-10-26-at-17.28.44.png)
 
 ### Create the periodic task
-
-Now, that we discussed the settings file, in the `app` package, create a new
-`worker.py` which will contain the Celery and beat schedule configuration:
 
 ```python
 import finnhub
@@ -311,7 +301,7 @@ def fetch(symbol: str):
         conn.execute(text(query))
 ```
 
-Going through the the code above:
+Going through the code above:
 
 ```python
 import finnhub
@@ -417,9 +407,10 @@ python -m celery --app app.worker.celery_app worker --beat -l info -c 1
 Soon, you will see that the tasks are scheduled, and the database is slowly
 filling.
 
-### A check-in
+### Checking in on what we've built so far
 
-Before going on, let's check what we have by now:
+Before proceeding to the visualization steps, let's have a look at what we have
+built so far:
 
 1. we created the project root
 2. a `docker-compose.yml` file to manage related services
@@ -430,14 +421,13 @@ Before going on, let's check what we have by now:
 
 At this point, we should have the following project structure:
 
-```
+```txt
 ├── app
 │   ├── __init__.py
 │   ├── db.py
 │   ├── settings.py
 │   └── worker.py
-├── .env
-├── docker-compose.yml
+└── docker-compose.yml
 ```
 
 ## Visualize the data with Plotly and Dash
@@ -445,10 +435,8 @@ At this point, we should have the following project structure:
 ### Getting static assets
 
 This tutorial is not about writing the necessary style sheets or collecting
-static assets. Hence you only need to copy-paste the following code.
-
-As the first step, create an `assets` directory next to the `app` package with
-the structure below:
+static assets, so you only need to copy-paste some code. As the first step,
+create an `assets` directory next to the `app` package with the structure below:
 
 ```
 ├── app
@@ -475,9 +463,8 @@ curl -s -Lo ./assets/style.css https://raw.githubusercontent.com/gabor-boros/que
 ### Setting up the application
 
 This is the most interesting part of the tutorial. We are going to visualize the
-data we collect.
-
-Create a `main.py` file in the `app` package, and let's begin with the imports:
+data we collect. Create a `main.py` file in the `app` package, and let's begin
+with the imports:
 
 ```python
 from datetime import datetime, timedelta
@@ -543,7 +530,7 @@ returns the date in UTC too), the `get_stock_data` does more. It is the core of
 our front-end application, it fetches the stock data from QuestDB that workers
 inserted.
 
-Now, define the initial data frame and the application:
+Define the initial data frame and the application:
 
 ```python
 # [...]
@@ -562,13 +549,11 @@ app = dash.Dash(
 
 As you can see above, the initial data frame (`df`) will contain the latest 5
 hours of data we have. This is needed to pre-populate the application with some
-data we have.
+data we have. The application definition `app` describes the application's
+title, asset folder, and some HTML meta tags used during rendering.
 
-The application definition `app` describes the application's title, asset
-folder, and some HTML meta tags used during rendering.
-
-Create the application layout that will be rendered as HTML. As you may assume,
-we won't write HTML code, though we will use Dash's helpers for that:
+Create the application layout that will be rendered as HTML. We won't write
+HTML, we will use Dash's helpers for that:
 
 ```python
 # [...]
@@ -740,9 +725,9 @@ if __name__ == "__main__":
     app.run_server(host="0.0.0.0", debug=settings.debug)
 ```
 
-We are now ready! As every piece takes its place, we can try our application
-with actual data. Make sure that the Docker containers are started and execute
-`PYTHONPATH=. python app/main.py` from the project root:
+We are now ready to try our application with actual data. Make sure that the
+Docker containers are started and execute `PYTHONPATH=. python app/main.py` from
+the project root:
 
 ```shell
 $ PYTHONPATH=. python app/main.py
@@ -775,7 +760,7 @@ In this tutorial, we've learned how to schedule tasks in Python, store data in
 QuestDB, and create beautiful dashboards using Plotly and Dash. Although we
 won't start trading just right now; this tutorial demonstrated well how to
 combine these separately powerful tools and software to create something bigger
-and more useful.
+and more useful. Thank you for your attention!
 
 Thank you for your attention!
 
