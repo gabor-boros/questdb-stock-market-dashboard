@@ -8,10 +8,10 @@ class Settings(BaseSettings):
     """
 
     # Celery settings
-    celery_broker: str = "redis://127.0.0.1:6379/0"
+    celery_broker: str = "redis://redis:6379/0"
 
     # Database settings
-    database_url: str = "postgresql://admin:quest@127.0.0.1:8812/qdb"
+    database_url: str = "postgresql://admin:quest@questdb:8812/qdb"
     database_pool_size: int = 3
 
     # Finnhub settings

@@ -125,14 +125,13 @@ the project will use. Place the requirements.txt in your project root with the
 content below:
 
 ```
-finnhub-python==2.4.5   # The official Finnhub Python client
-pydantic[dotenv]==1.8.2 # We will use Pydantic to create data models
-celery[redis]==5.1.2    # Celery will be the periodic task executor
-psycopg2==2.9.1         # We are using QuestDB's PostgreSQL connector
-sqlalchemy==1.4.2       # SQLAlchemy will help us executing SQL queries
-dash==2.0.0             # Dash is used for building data apps
-pandas==1.3.4           # Pandas will handle the data frames from QuestDB
-plotly==5.3.1           # Plotly will help us with beautiful charts
+finnhub-python==2.4.14  # The official Finnhub Python client
+pydantic[dotenv]==1.9.2 # We will use Pydantic to create data models
+celery[redis]==5.2.7    # Celery will be the periodic task executor
+psycopg[pool]==3.0.16   # We are using QuestDB's PostgreSQL connector
+dash==2.6.1             # Dash is used for building data apps
+pandas==1.4.3           # Pandas will handle the data frames from QuestDB
+plotly==5.10.0          # Plotly will help us with beautiful charts
 ```
 
 We can split the requirements into two logical groups:
@@ -154,16 +153,18 @@ $ pip install -r requirements.txt
 
 Since the periodic tasks would need to store the fetched quotes, we need to
 connect to QuestDB. Therefore, we create a new file in the `app` package, called
-`db.py`. This file contains the `SQLAlchemy` engine that will serve as the base
+`db.py`. This file contains the Postgres Pool that will serve as the base
 for our connections.
 
 ```python
-from sqlalchemy import create_engine
+from psycopg_pool import ConnectionPool
 
 from app.settings import settings
 
-engine = create_engine(
-    settings.database_url, pool_size=settings.database_pool_size, pool_pre_ping=True
+pool = ConnectionPool(
+    settings.database_url,
+    min_size=1,
+    max_size=settings.database_pool_size,
 )
 ```
 
@@ -250,8 +251,7 @@ Finnhub, and your API key will appear on the dashboard after login.
 ```python
 import finnhub
 from celery import Celery
-from sqlalchemy import text
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 client = finnhub.Client(api_key=settings.api_key)
@@ -260,7 +260,7 @@ celery_app = Celery(broker=settings.celery_broker)
 @celery_app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     """
-    Setup a periodic task for every symbol defined in the settings.
+    Set up a periodic task for every symbol defined in the settings.
     """
     for symbol in settings.symbols:
         sender.add_periodic_task(settings.frequency, fetch.s(symbol))
@@ -274,7 +274,7 @@ def fetch(symbol: str):
 
     quote: dict = client.quote(symbol)
     # https://finnhub.io/docs/api/quote
-    #  quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
+    # quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
     # c: Current price
     # d: Change
     # dp: Percent change
@@ -283,6 +283,7 @@ def fetch(symbol: str):
     # o: Open price of the day
     # pc: Previous close price
     # t: when it was traded
+
     query = f"""
     INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
@@ -297,8 +298,8 @@ def fetch(symbol: str):
     );
     """
 
-    with engine.connect() as conn:
-        conn.execute(text(query))
+    with pool.connection() as conn:
+        conn.execute(query)
 ```
 
 Going through the code above:
@@ -306,9 +307,7 @@ Going through the code above:
 ```python
 import finnhub
 from celery import Celery
-from sqlalchemy import text
-
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 # [...]
@@ -362,7 +361,7 @@ def fetch(symbol: str):
 
     quote: dict = client.quote(symbol)
     # https://finnhub.io/docs/api/quote
-    #  quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
+    # quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
     # c: Current price
     # d: Change
     # dp: Percent change
@@ -371,7 +370,7 @@ def fetch(symbol: str):
     # o: Open price of the day
     # pc: Previous close price
     # t: when it was traded
-    
+
     query = f"""
     INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
@@ -386,8 +385,8 @@ def fetch(symbol: str):
     );
     """
 
-    with engine.connect() as conn:
-        conn.execute(text(query))
+    with pool.connection() as conn:
+        conn.execute(query)
 ```
 
 Using the Finnhub `client`, we get a quote for the given symbol. After the quote
@@ -415,7 +414,7 @@ built so far:
 1. we created the project root
 2. a `docker-compose.yml` file to manage related services
 3. `app/settings.py` that handles our application configuration
-4. `app/db.py` configuring the database engine, and
+4. `app/db.py` configuring the database pool, and
 5. last but not least, `app/worker.py` that handles the hard work, fetches, and
    stores the data.
 
@@ -475,7 +474,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 from plotly import graph_objects
 
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 # [...]
@@ -514,7 +513,7 @@ def get_stock_data(start: datetime, end: datetime, stock_symbol: str):
     if stock_symbol:
         query += f" AND stock_symbol = '{stock_symbol}' "
 
-    with engine.connect() as conn:
+    with pool.connection() as conn:
         return pandas.read_sql_query(query, conn)
 
 # [...]

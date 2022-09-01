@@ -1,1 +1,0 @@
-python -m celery --app app.worker.celery_app worker --beat -l info -c 1

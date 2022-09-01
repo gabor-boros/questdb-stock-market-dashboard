@@ -4,6 +4,31 @@ volumes:
   questdb_data: {}
 
 services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - /app/scripts/start.sh
+    env_file:
+      - .env
+    depends_on:
+      - questdb
+      - redis
+    ports:
+      - "8050:8050"
+
+  dashboard-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - /app/scripts/start_worker.sh
+    env_file:
+      - .env
+    depends_on:
+      - dashboard
+
   redis:
     image: "redis:latest"
     ports:
