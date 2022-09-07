@@ -130,7 +130,7 @@ content below:
 finnhub-python==2.4.14  # The official Finnhub Python client
 pydantic[dotenv]==1.9.2 # We will use Pydantic to create data models
 celery[redis]==5.2.7    # Celery will be the periodic task executor
-psycopg[pool]==3.0.16   # We are using QuestDB's PostgreSQL connector
+psycopg[c,pool]==3.1.1  # We are using QuestDB's PostgreSQL connector
 dash==2.6.1             # Dash is used for building data apps
 pandas==1.4.3           # Pandas will handle the data frames from QuestDB
 plotly==5.10.0          # Plotly will help us with beautiful charts
@@ -142,8 +142,14 @@ We can split the requirements into two logical groups:
 2. requirements needed to visualize this data
 
 For the sake of simplicity, we did not create two separate requirements files,
-though in a production environment we would do. Create a virtualenv and install
-the dependencies:
+though in a production environment we would do.
+
+In order to let the application communicate with QuestDB utilizing the `psycopg`
+client library, we need to install `libpq-dev` package on our system. To install
+it, use your package manager; on Windows, you may need to install PostgreSQL on
+your system.
+
+Then, create a virtualenv and install the dependencies:
 
 ```shell
 $ virtualenv -p python3.8 virtualenv
