@@ -122,8 +122,8 @@ Voilá! The table is ready for use.
 
 As mentioned, our project will have two parts. For now, let's focus on the
 routine jobs that will fetch the data from Finnhub. As is the case of every
-standard Python project, we are using requirements.txt to define the dependencies
-the project will use. Place the requirements.txt in your project root with the
+standard Python project, we are using `requirements.txt` to define the dependencies
+the project will use. Place the `requirements.txt` in your project root with the
 content below:
 
 ```
