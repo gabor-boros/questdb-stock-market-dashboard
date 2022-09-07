@@ -447,6 +447,7 @@ At this point, we should have the following project structure:
 │   ├── db.py
 │   ├── settings.py
 │   └── worker.py
+├── .env
 └── docker-compose.yml
 ```
 
