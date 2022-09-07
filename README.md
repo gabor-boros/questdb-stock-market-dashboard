@@ -57,11 +57,13 @@ mkdir -p streaming-dashboard/app
 
 To install the services required for our project, we are using Docker and Docker
 Compose to avoid polluting our host machine. Within the project root, let's
-create a file, called docker-compose.yml. This file describes all the necessary
+create a file, called `docker-compose.yml`. This file describes all the necessary
 requirements the project will use; later on we will extend this file with other
 services too.
 
 ```yaml
+# docker-compose.yml
+
 version: "3"
 
 volumes:
@@ -120,19 +122,18 @@ Voilá! The table is ready for use.
 
 As mentioned, our project will have two parts. For now, let's focus on the
 routine jobs that will fetch the data from Finnhub. As is the case of every
-standard Python project, we are using requirements.txt to define the dependencies
-the project will use. Place the requirements.txt in your project root with the
+standard Python project, we are using `requirements.txt` to define the dependencies
+the project will use. Place the `requirements.txt` in your project root with the
 content below:
 
 ```
-finnhub-python==2.4.5   # The official Finnhub Python client
-pydantic[dotenv]==1.8.2 # We will use Pydantic to create data models
-celery[redis]==5.1.2    # Celery will be the periodic task executor
-psycopg2==2.9.1         # We are using QuestDB's PostgreSQL connector
-sqlalchemy==1.4.2       # SQLAlchemy will help us executing SQL queries
-dash==2.0.0             # Dash is used for building data apps
-pandas==1.3.4           # Pandas will handle the data frames from QuestDB
-plotly==5.3.1           # Plotly will help us with beautiful charts
+finnhub-python==2.4.14  # The official Finnhub Python client
+pydantic[dotenv]==1.9.2 # We will use Pydantic to create data models
+celery[redis]==5.2.7    # Celery will be the periodic task executor
+psycopg[c,pool]==3.1.1  # We are using QuestDB's PostgreSQL connector
+dash==2.6.1             # Dash is used for building data apps
+pandas==1.4.3           # Pandas will handle the data frames from QuestDB
+plotly==5.10.0          # Plotly will help us with beautiful charts
 ```
 
 We can split the requirements into two logical groups:
@@ -141,8 +142,14 @@ We can split the requirements into two logical groups:
 2. requirements needed to visualize this data
 
 For the sake of simplicity, we did not create two separate requirements files,
-though in a production environment we would do. Create a virtualenv and install
-the dependencies:
+though in a production environment we would do.
+
+In order to let the application communicate with QuestDB utilizing the `psycopg`
+client library, we need to install `libpq-dev` package on our system. To install
+it, use your package manager; on Windows, you may need to install PostgreSQL on
+your system.
+
+Then, create a virtualenv and install the dependencies:
 
 ```shell
 $ virtualenv -p python3.8 virtualenv
@@ -154,16 +161,20 @@ $ pip install -r requirements.txt
 
 Since the periodic tasks would need to store the fetched quotes, we need to
 connect to QuestDB. Therefore, we create a new file in the `app` package, called
-`db.py`. This file contains the `SQLAlchemy` engine that will serve as the base
+`db.py`. This file contains the PostgreSQL connection pool that will serve as the base
 for our connections.
 
 ```python
-from sqlalchemy import create_engine
+# app/db.py
+
+from psycopg_pool import ConnectionPool
 
 from app.settings import settings
 
-engine = create_engine(
-    settings.database_url, pool_size=settings.database_pool_size, pool_pre_ping=True
+pool = ConnectionPool(
+    settings.database_url,
+    min_size=1,
+    max_size=settings.database_pool_size,
 )
 ```
 
@@ -180,6 +191,8 @@ prefix to `SMD` that stands for "stock market dashboard", our application. Below
 can see the settings file:
 
 ```python
+# app/settings.py
+
 from typing import List
 
 from pydantic import BaseSettings
@@ -231,7 +244,20 @@ To keep our environment separated, we will use a `.env` file. One of `pydantic`
 based settings' most significant advantage is that it can read environment
 variables from `.env` files.
 
-Let's create a `.env` file in the project root, next to `docker-compose.yml`:
+Let's create a `.env` file in the project root, next to `docker-compose.yml`, so
+your project structure should look like this:
+
+```
+├── app
+│   ├── __init__.py
+│   ├── db.py
+│   ├── settings.py
+│   └── worker.py
+├── .env
+├── docker-compose.yml
+```
+
+Add the following content to the `.env` file:
 
 ```
 SMD_API_KEY = "<YOUR SANDBOX API KEY>"
@@ -248,10 +274,11 @@ Finnhub, and your API key will appear on the dashboard after login.
 ### Create the periodic task
 
 ```python
+# app/worker.py
+
 import finnhub
 from celery import Celery
-from sqlalchemy import text
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 client = finnhub.Client(api_key=settings.api_key)
@@ -260,7 +287,7 @@ celery_app = Celery(broker=settings.celery_broker)
 @celery_app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     """
-    Setup a periodic task for every symbol defined in the settings.
+    Set up a periodic task for every symbol defined in the settings.
     """
     for symbol in settings.symbols:
         sender.add_periodic_task(settings.frequency, fetch.s(symbol))
@@ -274,7 +301,7 @@ def fetch(symbol: str):
 
     quote: dict = client.quote(symbol)
     # https://finnhub.io/docs/api/quote
-    #  quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
+    # quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
     # c: Current price
     # d: Change
     # dp: Percent change
@@ -283,6 +310,7 @@ def fetch(symbol: str):
     # o: Open price of the day
     # pc: Previous close price
     # t: when it was traded
+
     query = f"""
     INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
@@ -297,8 +325,8 @@ def fetch(symbol: str):
     );
     """
 
-    with engine.connect() as conn:
-        conn.execute(text(query))
+    with pool.connection() as conn:
+        conn.execute(query)
 ```
 
 Going through the code above:
@@ -306,9 +334,7 @@ Going through the code above:
 ```python
 import finnhub
 from celery import Celery
-from sqlalchemy import text
-
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 # [...]
@@ -362,7 +388,7 @@ def fetch(symbol: str):
 
     quote: dict = client.quote(symbol)
     # https://finnhub.io/docs/api/quote
-    #  quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
+    # quote = {'c': 148.96, 'd': -0.84, 'dp': -0.5607, 'h': 149.7, 'l': 147.8, 'o': 148.985, 'pc': 149.8, 't': 1635796803}
     # c: Current price
     # d: Change
     # dp: Percent change
@@ -371,7 +397,7 @@ def fetch(symbol: str):
     # o: Open price of the day
     # pc: Previous close price
     # t: when it was traded
-    
+
     query = f"""
     INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
@@ -386,8 +412,8 @@ def fetch(symbol: str):
     );
     """
 
-    with engine.connect() as conn:
-        conn.execute(text(query))
+    with pool.connection() as conn:
+        conn.execute(query)
 ```
 
 Using the Finnhub `client`, we get a quote for the given symbol. After the quote
@@ -415,7 +441,7 @@ built so far:
 1. we created the project root
 2. a `docker-compose.yml` file to manage related services
 3. `app/settings.py` that handles our application configuration
-4. `app/db.py` configuring the database engine, and
+4. `app/db.py` configuring the database pool, and
 5. last but not least, `app/worker.py` that handles the hard work, fetches, and
    stores the data.
 
@@ -427,6 +453,7 @@ At this point, we should have the following project structure:
 │   ├── db.py
 │   ├── settings.py
 │   └── worker.py
+├── .env
 └── docker-compose.yml
 ```
 
@@ -467,6 +494,8 @@ data we collect. Create a `main.py` file in the `app` package, and let's begin
 with the imports:
 
 ```python
+# app/main.py
+
 from datetime import datetime, timedelta
 
 import dash
@@ -475,7 +504,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 from plotly import graph_objects
 
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 # [...]
@@ -514,7 +543,7 @@ def get_stock_data(start: datetime, end: datetime, stock_symbol: str):
     if stock_symbol:
         query += f" AND stock_symbol = '{stock_symbol}' "
 
-    with engine.connect() as conn:
+    with pool.connection() as conn:
         return pandas.read_sql_query(query, conn)
 
 # [...]
@@ -734,7 +763,7 @@ $ PYTHONPATH=. python app/main.py
 
 Dash is running on http://0.0.0.0:8050/
 
- * Tip: There are .env or .flaskenv files present. Do "pip install python-dotenv" to use them.
+ * Tip: There are `.env` or `.flaskenv` files present. Do "pip install python-dotenv" to use them.
  * Serving Flask app 'main' (lazy loading)
  * Environment: production
    WARNING: This is a development server. Do not use it in a production deployment.

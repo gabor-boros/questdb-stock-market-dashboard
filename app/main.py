@@ -6,7 +6,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output
 from plotly import graph_objects
 
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 GRAPH_INTERVAL = settings.graph_interval * 1000
@@ -36,8 +36,7 @@ def get_stock_data(start: datetime, end: datetime, stock_symbol: str):
     if stock_symbol:
         query += f" AND stock_symbol = '{stock_symbol}' "
 
-    with engine.connect() as conn:
-        print(f"SDQ: {query}")
+    with pool.connection() as conn:
         return pandas.read_sql_query(query, conn)
 
 

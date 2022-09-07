@@ -1,14 +1,13 @@
 import finnhub
 from celery import Celery
-from sqlalchemy import text
-from app.db import engine
+from app.db import pool
 from app.settings import settings
 
 client = finnhub.Client(api_key=settings.api_key)
 celery_app = Celery(broker=settings.celery_broker)
 
 
-# worker is started from the root of the project, command line:
+# worker is started from the root of the project by docker, command line:
 # python -m celery --app app.worker.celery_app worker --beat -l info -c 1
 #
 # worker relies on this table to exist:
@@ -30,7 +29,7 @@ celery_app = Celery(broker=settings.celery_broker)
 @celery_app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     """
-    Setup a periodic task for every symbol defined in the settings.
+    Set up a periodic task for every symbol defined in the settings.
     """
     for symbol in settings.symbols:
         sender.add_periodic_task(settings.frequency, fetch.s(symbol))
@@ -63,7 +62,6 @@ def fetch(symbol: str):
     # pc: Previous close price
     # t: when it was traded
 
-    # I wonder if these inserts could be batched
     query = f"""
     INSERT INTO quotes(stock_symbol, current_price, high_price, low_price, open_price, percent_change, tradets, ts)
     VALUES(
@@ -78,5 +76,5 @@ def fetch(symbol: str):
     );
     """
 
-    with engine.connect() as conn:
-        conn.execute(text(query))
+    with pool.connection() as conn:
+        conn.execute(query)
