@@ -57,11 +57,13 @@ mkdir -p streaming-dashboard/app
 
 To install the services required for our project, we are using Docker and Docker
 Compose to avoid polluting our host machine. Within the project root, let's
-create a file, called docker-compose.yml. This file describes all the necessary
+create a file, called `docker-compose.yml`. This file describes all the necessary
 requirements the project will use; later on we will extend this file with other
 services too.
 
 ```yaml
+# docker-compose.yml
+
 version: "3"
 
 volumes:
@@ -153,10 +155,12 @@ $ pip install -r requirements.txt
 
 Since the periodic tasks would need to store the fetched quotes, we need to
 connect to QuestDB. Therefore, we create a new file in the `app` package, called
-`db.py`. This file contains the Postgres Pool that will serve as the base
+`db.py`. This file contains the PostgreSQL connection pool that will serve as the base
 for our connections.
 
 ```python
+# app/db.py
+
 from psycopg_pool import ConnectionPool
 
 from app.settings import settings
@@ -181,6 +185,8 @@ prefix to `SMD` that stands for "stock market dashboard", our application. Below
 can see the settings file:
 
 ```python
+# app/settings.py
+
 from typing import List
 
 from pydantic import BaseSettings
@@ -232,7 +238,20 @@ To keep our environment separated, we will use a `.env` file. One of `pydantic`
 based settings' most significant advantage is that it can read environment
 variables from `.env` files.
 
-Let's create a `.env` file in the project root, next to `docker-compose.yml`:
+Let's create a `.env` file in the project root, next to `docker-compose.yml`, so
+your project structure should look like this:
+
+```
+├── app
+│   ├── __init__.py
+│   ├── db.py
+│   ├── settings.py
+│   └── worker.py
+├── .env
+├── docker-compose.yml
+```
+
+Add the following content to the `.env` file:
 
 ```
 SMD_API_KEY = "<YOUR SANDBOX API KEY>"
@@ -249,6 +268,8 @@ Finnhub, and your API key will appear on the dashboard after login.
 ### Create the periodic task
 
 ```python
+# app/worker.py
+
 import finnhub
 from celery import Celery
 from app.db import pool
@@ -466,6 +487,8 @@ data we collect. Create a `main.py` file in the `app` package, and let's begin
 with the imports:
 
 ```python
+# app/main.py
+
 from datetime import datetime, timedelta
 
 import dash
@@ -733,7 +756,7 @@ $ PYTHONPATH=. python app/main.py
 
 Dash is running on http://0.0.0.0:8050/
 
- * Tip: There are .env or .flaskenv files present. Do "pip install python-dotenv" to use them.
+ * Tip: There are `.env` or `.flaskenv` files present. Do "pip install python-dotenv" to use them.
  * Serving Flask app 'main' (lazy loading)
  * Environment: production
    WARNING: This is a development server. Do not use it in a production deployment.
